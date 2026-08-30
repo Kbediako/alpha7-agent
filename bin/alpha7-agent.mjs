@@ -448,18 +448,18 @@ export const runControl = async (connection, signal, stopped) => {
     return result.value;
   };
   const heartbeat = async () => {
+    const heartbeatStartedAt = Date.now();
     const status = acceptStatus(await requestStatus(connection, "heartbeat", "POST", signal));
-    nextHeartbeatAt = Date.now() + HEARTBEAT_INTERVAL_MS;
+    nextHeartbeatAt = heartbeatStartedAt + HEARTBEAT_INTERVAL_MS;
     return status;
   };
   const keepAlive = async () => Date.now() >= nextHeartbeatAt ? heartbeat() : undefined;
   const waitForActiveMatch = async () => {
     while (!stopped()) {
       const heartbeatDue = Date.now() >= nextHeartbeatAt;
-      const status = acceptStatus(heartbeatDue
-        ? await requestStatus(connection, "heartbeat", "POST", signal)
-        : await requestStatus(connection, "status", "GET", signal));
-      if (heartbeatDue) nextHeartbeatAt = Date.now() + HEARTBEAT_INTERVAL_MS;
+      const status = heartbeatDue
+        ? await heartbeat()
+        : acceptStatus(await requestStatus(connection, "status", "GET", signal));
       if (status.state === "connected" && ACTIVE_MATCH_STATES.has(status.matchState)) return;
       await sleep(DECISION_INTERVAL_MS, signal);
     }
@@ -490,6 +490,10 @@ export const runControl = async (connection, signal, stopped) => {
       if (!observation.self.alive) continue;
 
       await sleep(Math.max(0, nextActionAt - Date.now()), signal);
+      const actionHeartbeatStatus = await keepAlive();
+      if (actionHeartbeatStatus && (
+        actionHeartbeatStatus.state !== "connected" || !ACTIVE_MATCH_STATES.has(actionHeartbeatStatus.matchState)
+      )) break;
       const action = chooseAction(observation, arena, actionSeq + 1);
       const actionStartedAt = Date.now();
       const acted = await requestEnvelope(

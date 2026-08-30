@@ -260,3 +260,78 @@ test("broker lifecycle consumes, heartbeats, observes, acts, and releases", asyn
     globalThis.fetch = originalFetch;
   }
 });
+
+test("heartbeat scheduling survives serial near-timeout requests", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  const requests = [];
+  let virtualNow = 0;
+  let idleDeadline = 15_000;
+  let heartbeatCount = 0;
+  let stopped = false;
+  Date.now = () => virtualNow;
+  globalThis.fetch = async (url, init = {}) => {
+    const path = new URL(url).pathname.split("/").at(-1);
+    requests.push([path, virtualNow]);
+    if (path === "heartbeat") {
+      virtualNow += heartbeatCount === 0 ? 0 : 4;
+      heartbeatCount += 1;
+      if (virtualNow >= idleDeadline) {
+        return Response.json({
+          version: 1,
+          ok: false,
+          error: { code: "agent_revoked" }
+        }, { status: 401 });
+      }
+      idleDeadline = virtualNow + 15_000;
+      virtualNow += 4_999;
+      return Response.json({
+        version: 1,
+        roomId: connection.roomId,
+        seatId: connection.seatId,
+        mode: "agent_cup",
+        track: "custom",
+        state: "connected",
+        matchState: "running",
+        observationSeq: 0,
+        lastActionSeq: 0,
+        leaseExpiresAtMs: null,
+        idleDeadlineMs: idleDeadline
+      });
+    }
+    if (path === "observation") {
+      virtualNow += 4_999;
+      return Response.json({
+        ...observation,
+        observationSeq: 1,
+        serverTimeMs: virtualNow
+      });
+    }
+    if (path === "action") {
+      virtualNow += 4_999;
+      const action = JSON.parse(init.body);
+      stopped = heartbeatCount >= 2;
+      return Response.json({
+        version: 1,
+        type: "agent_action_result",
+        actionSeq: action.actionSeq,
+        accepted: true,
+        code: "accepted",
+        leaseExpiresAtMs: virtualNow + 750
+      });
+    }
+    throw new Error("unexpected request");
+  };
+  try {
+    await runControl(connection, new AbortController().signal, () => stopped);
+    assert.deepEqual(requests, [
+      ["heartbeat", 0],
+      ["observation", 4_999],
+      ["heartbeat", 9_998],
+      ["action", 15_001]
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  }
+});
