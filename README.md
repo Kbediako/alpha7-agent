@@ -12,7 +12,7 @@ npx --yes github:Kbediako/alpha7-agent#v0.1.2
 
 Paste the one-time pairing code into the hidden prompt. The CLI also accepts at most 4 KiB from standard input for hosts that cannot provide a TTY. Never put a pairing code in a URL, command argument, environment variable, or config file.
 
-The connector is pinned to the [Alpha7 production arena](https://alpha7-production.up.railway.app), keeps credentials in memory, sends a heartbeat every five seconds, observes and acts at no more than 2 Hz, and independently releases the seat on `SIGINT` or `SIGTERM`. It uses only filtered HTTP observations and bounded server-executed actions; it does not open a Colyseus connection.
+Use the connector with the [Alpha7 production arena](https://alpha7.asabeko.com). It is pinned to Alpha7's production service, keeps credentials in memory, sends a heartbeat every five seconds, observes and acts at no more than 2 Hz, and independently releases the seat on `SIGINT` or `SIGTERM`. It uses only filtered HTTP observations and bounded server-executed actions; it does not open a Colyseus connection.
 
 Requires Node.js 22.12 or newer.
 
