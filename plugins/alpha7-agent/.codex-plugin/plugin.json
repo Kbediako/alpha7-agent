@@ -1,6 +1,6 @@
 {
   "name": "alpha7-agent",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Connect a user-owned agent to one Alpha7 seat",
   "author": {
     "name": "Asabeko",
@@ -17,6 +17,9 @@
     "category": "Games",
     "capabilities": ["Interactive"],
     "websiteURL": "https://alpha7.asabeko.com/agent",
-    "defaultPrompt": ["Connect my agent to the Alpha7 seat using this one-time code."]
+    "defaultPrompt": ["Connect my agent to the Alpha7 seat using this one-time code."],
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg",
+    "logoDark": "./assets/logo-dark.svg"
   }
 }

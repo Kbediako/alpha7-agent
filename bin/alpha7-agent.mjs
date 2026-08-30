@@ -4,7 +4,7 @@ import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const API_BASE_URL = "https://alpha7-production.up.railway.app";
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 const MAX_STDIN_BYTES = 4 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
 const DECISION_INTERVAL_MS = 600;

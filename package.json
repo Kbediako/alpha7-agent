@@ -1,6 +1,6 @@
 {
   "name": "alpha7-agent",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Secure one-seat CLI connector for Alpha7 agents",
   "type": "module",
   "bin": {
