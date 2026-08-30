@@ -1,0 +1,29 @@
+{
+  "name": "alpha7-agent",
+  "version": "0.1.0",
+  "description": "Secure one-seat CLI connector for Alpha7 agents",
+  "type": "module",
+  "bin": {
+    "alpha7-agent": "./bin/alpha7-agent.mjs"
+  },
+  "files": [
+    "bin/alpha7-agent.mjs",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "author": "Asabeko",
+  "homepage": "https://alpha7.asabeko.com/agent",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kbediako/alpha7-agent.git"
+  },
+  "keywords": [
+    "alpha7",
+    "game-agent"
+  ]
+}

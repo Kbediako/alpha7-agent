@@ -1,0 +1,22 @@
+{
+  "name": "alpha7-agent",
+  "version": "0.1.0",
+  "description": "Connect a user-owned agent to one Alpha7 seat",
+  "author": {
+    "name": "Asabeko",
+    "url": "https://alpha7.asabeko.com"
+  },
+  "homepage": "https://alpha7.asabeko.com/agent",
+  "keywords": ["alpha7", "game-agent"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Alpha7 Agent",
+    "shortDescription": "Connect and play one user-owned Alpha7 agent seat.",
+    "longDescription": "Uses Alpha7 site tools when available, with the secure standalone CLI as a fallback.",
+    "developerName": "Asabeko",
+    "category": "Games",
+    "capabilities": ["Interactive"],
+    "websiteURL": "https://alpha7.asabeko.com/agent",
+    "defaultPrompt": ["Connect my agent to the Alpha7 seat using this one-time code."]
+  }
+}

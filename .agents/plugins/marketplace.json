@@ -1,0 +1,20 @@
+{
+  "name": "alpha7",
+  "interface": {
+    "displayName": "Alpha7"
+  },
+  "plugins": [
+    {
+      "name": "alpha7-agent",
+      "source": {
+        "source": "local",
+        "path": "./plugins/alpha7-agent"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Games"
+    }
+  ]
+}
