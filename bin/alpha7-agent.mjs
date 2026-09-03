@@ -4,7 +4,7 @@ import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const API_BASE_URL = "https://api.alpha7.asabeko.com";
-const VERSION = "0.1.3";
+const VERSION = "0.2.0";
 const MAX_STDIN_BYTES = 4 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
 const DECISION_INTERVAL_MS = 600;
@@ -29,11 +29,17 @@ const ERROR_CODES = new Set([
   "agent_control_limit", "combatant_limit", "pending_exists", "grant_expired",
   "grant_consumed", "principal_mismatch", "agent_revoked", "agent_paused",
   "owner_unavailable", "stale_action", "stale_observation", "rate_limited",
-  "target_not_visible", "lease_invalid", "room_not_waiting", "match_not_active"
+  "target_not_visible", "lease_invalid", "control_mode_mismatch", "tactical_intent_invalid",
+  "tactical_intent_expired", "room_not_waiting", "match_not_active"
 ]);
 const TEMPORARY_CODES = new Set([
   "match_not_active", "agent_paused", "owner_unavailable", "rate_limited",
   "stale_action", "stale_observation", "target_not_visible", "lease_invalid"
+]);
+const TACTICAL_STOP_REASONS = new Set([
+  "none", "no_intent", "waiting", "hold", "moving", "target_unavailable",
+  "pickup_unavailable", "route_blocked", "objective_complete", "intent_expired",
+  "cleared", "paused", "owner_unavailable", "match_inactive", "released"
 ]);
 
 class CliError extends Error {
@@ -76,21 +82,29 @@ export const parsePairingCode = (source) => {
     fail("Invalid one-time pairing code.");
   }
   if (
-    !exact(value, ["version", "roomId", "grant"]) || value.version !== 1 ||
+    !exact(value, ["version", "roomId", "grant"]) || (value.version !== 1 && value.version !== 2) ||
     !roomId(value.roomId) || !/^[A-Za-z0-9_-]{43}$/.test(value.grant)
   ) fail("Invalid one-time pairing code.");
   return value;
 };
 
-export const validateConnection = (value, expectedRoomId) => {
+export const validateConnection = (value, expectedRoomId, expectedProtocolVersion = 1) => {
+  const legacy = exact(value, [
+    "protocolVersion", "roomId", "seatId", "apiBaseUrl", "brokerCredential",
+    "idleDeadlineMs", "observationVersion", "actionVersion", "arena"
+  ]) && value.protocolVersion === 1 && value.actionVersion === 1;
+  const tactical = exact(value, [
+    "protocolVersion", "controlMode", "roomId", "seatId", "apiBaseUrl", "brokerCredential",
+    "idleDeadlineMs", "observationVersion", "tacticalIntentVersion", "reflexVersion",
+    "executorVersion", "arena"
+  ]) && value.protocolVersion === 2 && value.controlMode === "tactical_reflex_v1" &&
+    value.tacticalIntentVersion === 1 && value.reflexVersion === 1 && value.executorVersion === 1;
   if (
-    !exact(value, [
-      "protocolVersion", "roomId", "seatId", "apiBaseUrl", "brokerCredential",
-      "idleDeadlineMs", "observationVersion", "actionVersion", "arena"
-    ]) || value.protocolVersion !== 1 || value.observationVersion !== 1 || value.actionVersion !== 1 ||
-    value.roomId !== expectedRoomId || !roomId(value.roomId) || !id(value.seatId) ||
-    value.apiBaseUrl !== API_BASE_URL || !/^[A-Za-z0-9_-]{43}$/.test(value.brokerCredential) ||
-    !integer(value.idleDeadlineMs, 1) || !validArena(value.arena)
+    (!legacy && !tactical) || value.protocolVersion !== expectedProtocolVersion ||
+    value.observationVersion !== 1 || value.roomId !== expectedRoomId || !roomId(value.roomId) ||
+    !id(value.seatId) || value.apiBaseUrl !== API_BASE_URL ||
+    !/^[A-Za-z0-9_-]{43}$/.test(value.brokerCredential) || !integer(value.idleDeadlineMs, 1) ||
+    !validArena(value.arena)
   ) fail("Pairing returned an invalid connection response.");
   return value;
 };
@@ -135,7 +149,7 @@ export const validateObservation = (value, connection) => {
   if (
     !exact(value, keys) || value.version !== 1 || !integer(value.observationSeq, 1) ||
     value.roomId !== connection.roomId || !text(value.roundId, 128) || value.seatId !== connection.seatId ||
-    !oneOf(value.mode, MODES) || value.track !== "custom" ||
+    !oneOf(value.mode, MODES) || value.mode === "classic" || value.track !== "custom" ||
     !oneOf(value.matchState, new Set(["countdown", "running", "danger", "final_zone", "finished"])) ||
     !integer(value.serverTimeMs, 1) || !text(value.arenaVersion, 128) ||
     !validSelf(value.self, connection.seatId) || !validZone(value.zone) ||
@@ -171,6 +185,48 @@ export const validateActionResult = (value, expectedActionSeq) => {
       ? value.actionSeq !== expectedActionSeq || value.code !== "accepted" || !integer(value.leaseExpiresAtMs, 1)
       : value.code === "accepted" || value.leaseExpiresAtMs !== null)
   ) fail("Action returned an invalid response.");
+  return value;
+};
+
+export const validateTacticalIntentResult = (value, expectedIntentSeq) => {
+  const validCode = value?.code === "accepted" || oneOf(value?.code, ERROR_CODES);
+  if (
+    !exact(value, ["version", "type", "intentSeq", "accepted", "code", "intentExpiresAtMs"]) ||
+    value.version !== 1 || value.type !== "agent_tactical_intent_result" ||
+    !(value.intentSeq === null || value.intentSeq === expectedIntentSeq) ||
+    typeof value.accepted !== "boolean" || !validCode ||
+    (value.accepted
+      ? value.intentSeq !== expectedIntentSeq || value.code !== "accepted" ||
+        !integer(value.intentExpiresAtMs, 1)
+      : value.code === "accepted" || value.intentExpiresAtMs !== null)
+  ) fail("Tactical intent returned an invalid response.");
+  return value;
+};
+
+export const validateTacticalStatus = (value, connection) => {
+  if (
+    !exact(value, [
+      "version", "type", "roomId", "seatId", "mode", "track", "controlMode", "state",
+      "matchState", "observationSeq", "lastIntentSeq", "intentExpiresAtMs", "lastReflexAtMs",
+      "active", "stopReason", "idleDeadlineMs"
+    ]) || value.version !== 1 || value.type !== "agent_tactical_status" ||
+    value.roomId !== connection.roomId || value.seatId !== connection.seatId ||
+    !oneOf(value.mode, MODES) || value.track !== "custom" ||
+    value.controlMode !== "tactical_reflex_v1" || !oneOf(value.state, SEAT_STATES) ||
+    !oneOf(value.matchState, MATCH_STATES) || !integer(value.observationSeq) ||
+    !integer(value.lastIntentSeq) || !nullableInteger(value.intentExpiresAtMs, 1) ||
+    !nullableInteger(value.lastReflexAtMs, 1) || typeof value.active !== "boolean" ||
+    (value.lastIntentSeq === 0 && (
+      value.intentExpiresAtMs !== null || value.lastReflexAtMs !== null || value.active
+    )) ||
+    !oneOf(value.stopReason, TACTICAL_STOP_REASONS) ||
+    (value.active
+      ? value.state !== "connected" || !ACTIVE_MATCH_STATES.has(value.matchState) ||
+        value.intentExpiresAtMs === null || value.lastReflexAtMs === null ||
+        (value.stopReason !== "moving" && value.stopReason !== "hold")
+      : value.stopReason === "moving" || value.stopReason === "hold") ||
+    !integer(value.idleDeadlineMs, 1)
+  ) fail("Tactical status returned an invalid response.");
   return value;
 };
 
@@ -415,16 +471,46 @@ const readPairingCode = async () => {
 const controlPath = (connection, suffix) =>
   `/agent/rooms/${encodeURIComponent(connection.roomId)}/${suffix}`;
 
+const releaseMalformedConnection = async (payload, pairing) => {
+  if (
+    !isRecord(payload) ||
+    typeof payload.brokerCredential !== "string" ||
+    !/^[A-Za-z0-9_-]{1,256}$/.test(payload.brokerCredential)
+  ) return;
+  try {
+    await credentialRequest(
+      `/agent/rooms/${encodeURIComponent(pairing.roomId)}/control`,
+      payload.brokerCredential,
+      { method: "DELETE", keepalive: true }
+    );
+  } catch {
+    // Preserve the descriptor failure; release is best effort after an invalid response.
+  }
+};
+
 export const consumePairing = async (pairing, signal) => {
-  const result = await requestEnvelope(
+  signal?.throwIfAborted();
+  const { response, payload } = await credentialRequest(
     `/agent/rooms/${encodeURIComponent(pairing.roomId)}/grants/consume`,
     pairing.grant,
-    (value) => validateConnection(value, pairing.roomId),
-    { method: "POST" },
-    signal
+    { method: "POST" }
   );
-  if (!result.value) throw new CliError(`Pairing failed (${result.status}).`);
-  return result.value;
+  if (!response.ok) {
+    validateErrorEnvelope(payload);
+    throw new CliError(`Pairing failed (${response.status}).`);
+  }
+  let connection;
+  try {
+    connection = validateConnection(payload, pairing.roomId, pairing.version);
+  } catch (error) {
+    await releaseMalformedConnection(payload, pairing);
+    throw error;
+  }
+  if (signal?.aborted) {
+    await releaseControl(connection).catch(() => undefined);
+    throw new CliError("Interrupted.", 130);
+  }
+  return connection;
 };
 
 const requestStatus = (connection, suffix, method, signal) => requestEnvelope(
@@ -432,7 +518,7 @@ const requestStatus = (connection, suffix, method, signal) => requestEnvelope(
   (value) => validateStatus(value, connection), { method }, signal
 );
 
-export const runControl = async (connection, signal, stopped) => {
+const runMacroControl = async (connection, signal, stopped) => {
   let arena = connection.arena;
   let actionSeq = 0;
   let nextHeartbeatAt = 0;
@@ -512,6 +598,66 @@ export const runControl = async (connection, signal, stopped) => {
     }
   }
 };
+
+export const submitTacticalIntent = (connection, intent, signal) => requestEnvelope(
+  controlPath(connection, "tactical-intent"), connection.brokerCredential,
+  (value) => validateTacticalIntentResult(value, intent.intentSeq),
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(intent) },
+  signal
+);
+
+export const getTacticalStatus = (connection, signal) => requestEnvelope(
+  controlPath(connection, "tactical-status"), connection.brokerCredential,
+  (value) => validateTacticalStatus(value, connection), { method: "GET" }, signal
+);
+
+export const clearTacticalIntent = (connection) => requestEnvelope(
+  controlPath(connection, "tactical-intent"), connection.brokerCredential,
+  (value) => validateTacticalStatus(value, connection), { method: "DELETE", keepalive: true }
+);
+
+const runTacticalControl = async (connection, signal, stopped) => {
+  let nextHeartbeatAt = 0;
+  let openingVerified = false;
+  let failure;
+  try {
+    while (!stopped()) {
+      if (Date.now() >= nextHeartbeatAt) {
+        const heartbeatStartedAt = Date.now();
+        const heartbeat = await requestStatus(connection, "heartbeat", "POST", signal);
+        if (!heartbeat.value) throw new CliError(`Alpha7 status request failed (${heartbeat.status}).`);
+        if (heartbeat.value.state === "revoked" || heartbeat.value.state === "disconnected") {
+          throw new CliError("Alpha7 agent control ended.");
+        }
+        nextHeartbeatAt = heartbeatStartedAt + HEARTBEAT_INTERVAL_MS;
+      }
+      const status = await getTacticalStatus(connection, signal);
+      if (!status.value) throw new CliError(`Alpha7 tactical status failed (${status.status}).`);
+      if (!openingVerified && status.value.lastIntentSeq !== 1) {
+        throw new CliError("Alpha7 tactical opening was not bound.");
+      }
+      openingVerified = true;
+      if (status.value.state === "revoked" || status.value.state === "disconnected") {
+        throw new CliError("Alpha7 agent control ended.");
+      }
+      if (stopped()) break;
+      await sleep(Math.max(0, nextHeartbeatAt - Date.now()), signal);
+    }
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    const cleared = await clearTacticalIntent(connection);
+    if (!cleared.value) throw new CliError(`Alpha7 tactical clear failed (${cleared.status}).`);
+  } catch (error) {
+    failure ??= error;
+  }
+  if (failure) throw failure;
+};
+
+export const runControl = (connection, signal, stopped) => connection.protocolVersion === 2
+  ? runTacticalControl(connection, signal, stopped)
+  : runMacroControl(connection, signal, stopped);
 
 export const releaseControl = async (connection) => {
   const { response, payload } = await credentialRequest(
