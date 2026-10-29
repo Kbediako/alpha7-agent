@@ -123,7 +123,7 @@ test("installed bin symlink executes the CLI entrypoint", () => {
   try {
     const result = spawnSync(binary, ["--version"], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, "0.2.0\n");
+    assert.equal(result.stdout, "0.2.1\n");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -151,6 +151,24 @@ test("pairing input is exact and errors never disclose it", () => {
     JSON.stringify({ version: 3, roomId: "ROOM_123", grant: secret })
   ]) {
     assert.throws(() => parsePairingCode(source), (error) => !error.message.includes(secret));
+  }
+});
+
+test("pairing and connection credentials reject non-string JSON values", () => {
+  const secret = "g".repeat(43);
+  for (const credential of [[secret], [[secret]], { token: secret }, 123, true, null]) {
+    assert.throws(
+      () => parsePairingCode(JSON.stringify({ version: 1, roomId: connection.roomId, grant: credential })),
+      (error) => /Invalid one-time pairing code/.test(error.message) && !error.message.includes(secret)
+    );
+    for (const descriptor of [connection, tacticalConnection]) {
+      assert.throws(
+        () => validateConnection(
+          { ...descriptor, brokerCredential: credential }, descriptor.roomId, descriptor.protocolVersion
+        ),
+        (error) => /invalid connection/.test(error.message) && !error.message.includes(secret)
+      );
+    }
   }
 });
 
@@ -269,6 +287,30 @@ test("consume releases a malformed descriptor against the trusted requested room
       [`/agent/rooms/${tacticalConnection.roomId}/control`, "DELETE"]
     ]);
     assert.equal(requests[1].init.headers.Authorization, `Bearer ${secret}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("consume never uses non-string broker credentials for cleanup", async () => {
+  const originalFetch = globalThis.fetch;
+  const secret = "s".repeat(43);
+  const requests = [];
+  globalThis.fetch = async (url, init = {}) => {
+    requests.push({ url: String(url), init });
+    return Response.json({ ...connection, brokerCredential: [secret] }, { status: 201 });
+  };
+  try {
+    await assert.rejects(
+      consumePairing(
+        { version: 1, roomId: connection.roomId, grant: "g".repeat(43) },
+        new AbortController().signal
+      ),
+      (error) => /invalid connection/.test(error.message) && !error.message.includes(secret)
+    );
+    assert.deepEqual(requests.map(({ url, init }) => [new URL(url).pathname, init.method]), [
+      [`/agent/rooms/${connection.roomId}/grants/consume`, "POST"]
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -1,6 +1,6 @@
 {
   "name": "alpha7-agent",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Connect a user-owned agent to one Alpha7 seat",
   "author": {
     "name": "Asabeko",

@@ -4,7 +4,7 @@ import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const API_BASE_URL = "https://api.alpha7.asabeko.com";
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 const MAX_STDIN_BYTES = 4 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
 const DECISION_INTERVAL_MS = 600;
@@ -83,7 +83,7 @@ export const parsePairingCode = (source) => {
   }
   if (
     !exact(value, ["version", "roomId", "grant"]) || (value.version !== 1 && value.version !== 2) ||
-    !roomId(value.roomId) || !/^[A-Za-z0-9_-]{43}$/.test(value.grant)
+    !roomId(value.roomId) || typeof value.grant !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value.grant)
   ) fail("Invalid one-time pairing code.");
   return value;
 };
@@ -103,7 +103,8 @@ export const validateConnection = (value, expectedRoomId, expectedProtocolVersio
     (!legacy && !tactical) || value.protocolVersion !== expectedProtocolVersion ||
     value.observationVersion !== 1 || value.roomId !== expectedRoomId || !roomId(value.roomId) ||
     !id(value.seatId) || value.apiBaseUrl !== API_BASE_URL ||
-    !/^[A-Za-z0-9_-]{43}$/.test(value.brokerCredential) || !integer(value.idleDeadlineMs, 1) ||
+    typeof value.brokerCredential !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value.brokerCredential) ||
+    !integer(value.idleDeadlineMs, 1) ||
     !validArena(value.arena)
   ) fail("Pairing returned an invalid connection response.");
   return value;
